@@ -1,0 +1,303 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH (NextAuth v4 required tables)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?   @db.Text // bcrypt hash, null for OAuth users
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime? // soft delete
+
+  // NextAuth relations
+  accounts Account[]
+  sessions Session[]
+
+  // App relations
+  roles        UserRole[]
+  licenses     License[]
+  deviceSessions DeviceSession[]
+  transactions Transaction[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RBAC — Dynamic Permissions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A named role (e.g. "admin", "user", "support")
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique // "admin" | "user" | ...
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+/// Available permissions in the system (e.g. "user:read", "license:revoke")
+model Permission {
+  id          String   @id @default(cuid())
+  action      String   // "create" | "read" | "update" | "delete" | "manage"
+  subject     String   // "user" | "license" | "transaction" | "all"
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@unique([action, subject])
+  @@map("permissions")
+}
+
+/// Junction: Role ↔ Permission (many-to-many)
+model RolePermission {
+  roleId       String
+  permissionId String
+  grantedAt    DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+/// Junction: User ↔ Role (many-to-many)
+model UserRole {
+  userId    String
+  roleId    String
+  grantedAt DateTime @default(now())
+  grantedBy String?  // userId of admin who assigned
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LICENSE PLAN (các gói sản phẩm)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LicensePlan {
+  id          String   @id @default(cuid())
+  name        String   @unique // "Starter" | "Pro" | "Lifetime"
+  description String?
+  price       Decimal  @db.Decimal(10, 2) // in VND or USD
+  currency    String   @default("VND")
+  durationDays Int?    // null = lifetime
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  licenses     License[]
+  transactions Transaction[]
+
+  @@map("license_plans")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LICENSE (key gắn với account)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Status flow: PENDING → ACTIVE → EXPIRED | REVOKED | SUSPENDED
+enum LicenseStatus {
+  PENDING   // created but not yet activated
+  ACTIVE    // in use
+  EXPIRED   // past expiry date
+  REVOKED   // admin revoked
+  SUSPENDED // temporarily disabled
+}
+
+model License {
+  id           String        @id @default(cuid())
+  key          String        @unique // e.g. "XXXX-XXXX-XXXX-XXXX", indexed
+  userId       String
+  planId       String
+  status       LicenseStatus @default(PENDING)
+  activatedAt  DateTime?     // when user first activated
+  expiresAt    DateTime?     // null = lifetime
+  revokedAt    DateTime?
+  revokedBy    String?       // admin userId
+  revokeReason String?
+  notes        String?       @db.Text // internal admin notes
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan    LicensePlan @relation(fields: [planId], references: [id])
+
+  deviceSessions DeviceSession[]
+  transactions   Transaction[]
+
+  @@index([key])
+  @@index([userId])
+  @@index([status])
+  @@map("licenses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEVICE SESSION (1 account = 1 device at a time)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Track which device a license is currently bound to.
+/// Only ONE active DeviceSession per (userId) at any moment.
+model DeviceSession {
+  id                String    @id @default(cuid())
+  userId            String
+  licenseId         String
+  machineId         String    @db.Text // hardware fingerprint from Electron
+  machineName       String?            // friendly name (e.g. "MacBook Pro")
+  platform          String?            // "darwin" | "win32" | "linux"
+  appVersion        String?            // Electron app version
+  lastHeartbeatAt   DateTime  @default(now()) // Electron pings this regularly
+  isActive          Boolean   @default(true)
+  deactivatedAt     DateTime?
+  deactivatedReason String?   // "new_device_login" | "manual" | "license_expired"
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  license License @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([licenseId])
+  @@index([machineId])
+  @@map("device_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRANSACTION (lịch sử giao dịch)
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TransactionStatus {
+  PENDING   // awaiting admin confirmation
+  COMPLETED // payment confirmed, license issued
+  FAILED    // payment failed
+  REFUNDED  // refunded
+  CANCELLED // cancelled before completion
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER // chuyển khoản ngân hàng
+  CASH          // tiền mặt
+  MOMO
+  ZALOPAY
+  VNPAY
+  OTHER
+}
+
+model Transaction {
+  id            String            @id @default(cuid())
+  userId        String
+  licenseId     String?           // set after license is created
+  planId        String
+  status        TransactionStatus @default(PENDING)
+  amount        Decimal           @db.Decimal(10, 2)
+  currency      String            @default("VND")
+  paymentMethod PaymentMethod     @default(BANK_TRANSFER)
+  paymentRef    String?           // bank transfer ref, MoMo transaction ID, etc.
+  paidAt        DateTime?         // when payment was confirmed
+  confirmedBy   String?           // admin userId who confirmed
+  note          String?           @db.Text // admin note or customer note
+  metadata      Json?             // extra data (e.g. raw payment webhook body)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user    User        @relation(fields: [userId], references: [id])
+  license License?    @relation(fields: [licenseId], references: [id])
+  plan    LicensePlan @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("transactions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG (immutable log for compliance / dispute resolution)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?  // who did the action (null = system)
+  action     String   // "license.revoke" | "user.ban" | "transaction.confirm" ...
+  entityType String   // "License" | "User" | "Transaction" ...
+  entityId   String   // the affected record's id
+  before     Json?    // snapshot before change
+  after      Json?    // snapshot after change
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
