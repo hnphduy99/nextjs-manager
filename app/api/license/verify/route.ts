@@ -3,11 +3,9 @@ import type { LicenseStatus } from "@prisma/client";
 import { createHash } from "crypto";
 import { type NextRequest, NextResponse } from "next/server";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 interface VerifyRequest {
   licenseKey: string;
-  machineId: string; // raw hardware fingerprint, we hash it server-side
+  machineId: string;
   machineName?: string;
   platform?: string;
   appVersion?: string;
@@ -35,8 +33,8 @@ function errorResponse(code: VerifyErrorCode, message: string, status = 403) {
 const STATUS_ERROR_MAP: Partial<Record<LicenseStatus, [VerifyErrorCode, string]>> = {
   EXPIRED: ["LICENSE_EXPIRED", "License has expired. Please renew your subscription."],
   REVOKED: ["LICENSE_REVOKED", "License has been revoked. Please contact support."],
-  SUSPENDED: ["LICENSE_SUSPENDED", "License is temporarily suspended. Please contact support."],
-  PENDING: ["LICENSE_PENDING", "License has not been activated yet."]
+  SUSPENDED: ["LICENSE_SUSPENDED", "License is temporarily suspended. Please contact support."]
+  // PENDING is intentionally omitted: first-time verify auto-activates it (see step 4)
 };
 
 // ─── Route Handler ────────────────────────────────────────────────────────────
