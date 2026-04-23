@@ -1,5 +1,6 @@
 "use client";
 
+import { DeleteButton } from "@/components/actions/delete-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,7 +55,6 @@ export function UserActionsMenu({ user, currentUserId }: Props) {
 
   // ── Delete ──────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
-    if (!confirm("Permanently delete this user? This cannot be undone.")) return;
     setLoading(true);
     const res = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
     if (!res.ok) {
@@ -128,15 +128,11 @@ export function UserActionsMenu({ user, currentUserId }: Props) {
         )}
 
         {!isSelf && !user.deletedAt && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={loading}
-            onClick={handleDelete}
-            className="text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
-          >
-            {loading ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
-          </Button>
+          <DeleteButton
+            trigger={loading ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+            title="Permanently delete this user? This cannot be undone."
+            confirm={handleDelete}
+          />
         )}
       </div>
 

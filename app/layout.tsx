@@ -1,5 +1,6 @@
 import { Providers } from "@/components/providers";
 import { ThemeProvider } from "@/components/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
@@ -36,7 +37,7 @@ export default function RootLayout({
       <body>
         <Providers>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            {children}
+            <TooltipProvider>{children}</TooltipProvider>
           </ThemeProvider>
         </Providers>
       </body>
