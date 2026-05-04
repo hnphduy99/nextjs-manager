@@ -162,11 +162,7 @@ export class PurchaseClient {
    * @param intervalMs How often to poll (default: 15 seconds)
    * @param timeoutMs Total wait time (default: 30 minutes)
    */
-  async pollForLicenseKey(
-    orderId: string,
-    intervalMs = 15_000,
-    timeoutMs = 30 * 60 * 1000
-  ): Promise<string | null> {
+  async pollForLicenseKey(orderId: string, intervalMs = 15_000, timeoutMs = 30 * 60 * 1000): Promise<string | null> {
     const deadline = Date.now() + timeoutMs;
 
     while (Date.now() < deadline) {

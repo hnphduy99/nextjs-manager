@@ -12,7 +12,7 @@ import {
   Users,
   type LucideIcon
 } from "lucide-react";
-import { signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -39,6 +39,13 @@ interface SidebarProps {
 
 export function DashboardSidebar({ user }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/auth/login");
+    router.refresh();
+  }
 
   return (
     <aside className="bg-card flex h-screen w-60 flex-col border-r">
@@ -91,7 +98,7 @@ export function DashboardSidebar({ user }: SidebarProps) {
           </div>
         </div>
         <button
-          onClick={() => signOut({ callbackUrl: "/auth/login" })}
+          onClick={handleLogout}
           className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors"
         >
           <LogOut className="size-4" />

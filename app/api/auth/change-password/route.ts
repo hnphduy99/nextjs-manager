@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
 import { getSession } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import bcrypt from "bcryptjs";
 import { type NextRequest, NextResponse } from "next/server";
 
-// POST /api/auth/change-password
+/** POST /api/auth/change-password — Changes password for an authenticated user. */
 export async function POST(req: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -33,8 +34,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Current password is incorrect." }, { status: 400 });
   }
 
-  const passwordHash = await bcrypt.hash(newPassword, 12);
-  await db.user.update({ where: { id: session.user.id }, data: { passwordHash } });
+  const newHash = await bcrypt.hash(newPassword, 12);
+
+  // Update in both Prisma and Supabase Auth
+  const supabase = await createClient();
+  const [, supabaseResult] = await Promise.all([
+    db.user.update({ where: { id: session.user.id }, data: { passwordHash: newHash } }),
+    supabase.auth.updateUser({ password: newPassword })
+  ]);
+
+  if (supabaseResult.error) {
+    console.error("Supabase updateUser error:", supabaseResult.error);
+    return NextResponse.json({ error: "Could not sync password." }, { status: 500 });
+  }
 
   return NextResponse.json({ success: true });
 }

@@ -1,11 +1,9 @@
-import { jwtVerify, SignJWT } from "jose";
+import { jwtVerify } from "jose";
 
 /**
  * Electron app JWT auth — uses `jose` (edge-compatible, no Node.js crypto required).
  * These tokens are separate from NextAuth sessions and used exclusively by the Electron client.
  */
-
-const DEFAULT_EXPIRES_IN = "30d";
 
 function getSecret(): Uint8Array {
   const secret = process.env.ELECTRON_JWT_SECRET;
@@ -19,17 +17,6 @@ export interface ElectronTokenPayload {
   iat?: number;
   exp?: number;
   jti?: string;
-}
-
-/** Sign a new Electron JWT for a given user */
-export async function signElectronToken(userId: string, email: string): Promise<string> {
-  return new SignJWT({ email })
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(userId)
-    .setIssuedAt()
-    .setExpirationTime(DEFAULT_EXPIRES_IN)
-    .setJti(crypto.randomUUID())
-    .sign(getSecret());
 }
 
 /** Verify and decode an Electron JWT. Returns null if invalid or expired. */

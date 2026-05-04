@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
-import { createAdminClient } from "@/lib/supabase/server";
-import { createClient } from "@supabase/supabase-js";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import bcrypt from "bcryptjs";
 import { type NextRequest, NextResponse } from "next/server";
 
@@ -10,13 +9,16 @@ interface LoginBody {
 }
 
 /**
- * POST /api/auth/token
- * Electron-only login endpoint.
+ * POST /api/auth/login
+ * Custom login for Web Manager.
  *
  * Flow:
  *  1. Verify password against Prisma DB (source of truth / bcrypt)
- *  2. Sync user into Supabase Auth by email (create or update password)
- *  3. Return Supabase access_token + refresh_token (no cookies — Electron stores locally)
+ *  2. Sync user into Supabase Auth by email (create on first login, update password on subsequent)
+ *  3. supabase.auth.signInWithPassword() → sets session cookies automatically
+ *
+ * Note: Supabase user UUID ≠ Prisma CUID. Email is the stable bridge between both systems.
+ * lib/auth.ts resolves Prisma user by email from the Supabase session.
  */
 export async function POST(req: NextRequest) {
   let body: LoginBody;
@@ -49,23 +51,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid credentials." }, { status: 401 });
   }
 
-  // Step 2: Sync user into Supabase Auth by email
+  // Step 2: Sync user into Supabase Auth (no UUID — let Supabase generate its own)
   const adminClient = createAdminClient();
 
   const { error: createError } = await adminClient.auth.admin.createUser({
     email: user.email,
-    password,
+    password, // Supabase hashes this internally
     email_confirm: true,
     user_metadata: { name: user.name }
   });
 
   if (createError) {
     if (!createError.message.toLowerCase().includes("already been registered")) {
-      console.error("[token] Supabase createUser error:", createError.message);
+      console.error("[login] Supabase createUser error:", createError.message);
       return NextResponse.json({ error: "Internal server error." }, { status: 500 });
     }
 
-    // Already exists — update password to keep in sync
+    // User already exists in Supabase — update their password to stay in sync
     const { data: list } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
     const supabaseUser = list?.users.find((u) => u.email === user.email);
 
@@ -74,25 +76,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Step 3: Sign in with plain supabase-js (no cookies — return tokens directly)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  );
+  // Step 3: Sign in → sets Supabase session cookies on the response
+  const supabase = await createClient();
+  const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-  const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-
-  if (signInError || !data.session) {
-    console.error("[token] Supabase signInWithPassword error:", signInError?.message);
+  if (signInError) {
+    console.error("[login] Supabase signInWithPassword error:", signInError.message);
     return NextResponse.json({ error: "Could not create session." }, { status: 500 });
   }
 
-  return NextResponse.json({
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-    expires_in: data.session.expires_in,
-    userId: user.id,
-    email: user.email,
-    name: user.name
-  });
+  return NextResponse.json({ ok: true });
 }
