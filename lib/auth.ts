@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { createClient } from "@/lib/supabase/server";
+import { forbidden } from "next/navigation";
 import "server-only";
 
 export interface AppSession {
@@ -85,9 +86,9 @@ export function hasRole(session: AppSession | null, role: string): boolean {
   return session.user.roles?.includes(role) ?? false;
 }
 
-/** Assert permission — throws if the session doesn't have the required permission. */
+/** Assert permission — calls Next.js forbidden() → renders app/forbidden.tsx with HTTP 403. */
 export function assertPermission(session: AppSession | null, subject: string, action: string): void {
   if (!hasPermission(session, subject, action)) {
-    throw new Error(`Forbidden: missing ${action}:${subject} permission`);
+    forbidden();
   }
 }
